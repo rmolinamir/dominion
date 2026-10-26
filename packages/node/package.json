@@ -1,0 +1,47 @@
+{
+  "name": "@atomly/dominion-node",
+  "version": "0.0.0",
+  "description": "Node.js command execution, ALS hooks, and testing adapters for Dominion",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rmolinamir/domain.git",
+    "directory": "packages/node"
+  },
+  "homepage": "https://github.com/rmolinamir/domain#readme",
+  "bugs": "https://github.com/rmolinamir/domain/issues",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.20.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --root ../.. packages/node/test"
+  },
+  "devDependencies": {
+    "@atomly/dominion-core": "workspace:^"
+  },
+  "peerDependencies": {
+    "@atomly/dominion-core": "workspace:^"
+  }
+}

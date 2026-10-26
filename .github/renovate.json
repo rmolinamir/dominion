@@ -1,0 +1,55 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "automerge": true,
+  "automergeType": "pr",
+  "branchConcurrentLimit": 4,
+  "extends": ["config:base"],
+
+  "lockFileMaintenance": {
+    "automerge": true,
+    "enabled": true,
+    "schedule": ["after 9pm on Sunday"]
+  },
+
+  "npm": {
+    "fileMatch": ["(^|/)package\\.json$", "(^|/)package\\.json\\.hbs$"]
+  },
+
+  "packageRules": [
+    {
+      "enabled": false,
+      "matchPackagePatterns": ["^@atomly/dominion-"]
+    },
+    {
+      "automerge": true,
+      "groupName": "all non-major dependencies",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "stabilityDays": 7
+    },
+    {
+      "automerge": true,
+      "groupName": "dev tooling (weekly batch)",
+      "matchDepTypes": ["devDependencies"],
+      "stabilityDays": 7
+    },
+    {
+      "automerge": false,
+      "groupName": "major upgrades (manual)",
+      "matchUpdateTypes": ["major"]
+    },
+    {
+      "groupName": "TypeScript/OXC toolchain",
+      "matchPackagePatterns": ["^typescript$", "^oxlint$", "^oxfmt$", "^@types/"],
+      "stabilityDays": 3
+    }
+  ],
+  "prConcurrentLimit": 4,
+
+  "prHourlyLimit": 2,
+  "rangeStrategy": "bump",
+  "rebaseWhen": "never",
+
+  "schedule": ["after 9pm on Sunday"],
+  "timezone": "America/New_York",
+  "updateInternalDeps": true
+}
