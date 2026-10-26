@@ -7,11 +7,11 @@
   "sideEffects": false,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rmolinamir/domain.git",
+    "url": "git+https://github.com/rmolinamir/dominion.git",
     "directory": "packages/node"
   },
-  "homepage": "https://github.com/rmolinamir/domain#readme",
-  "bugs": "https://github.com/rmolinamir/domain/issues",
+  "homepage": "https://github.com/rmolinamir/dominion#readme",
+  "bugs": "https://github.com/rmolinamir/dominion/issues",
   "files": [
     "dist",
     "README.md",

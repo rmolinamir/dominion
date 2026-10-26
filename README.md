@@ -99,12 +99,12 @@ from your machine using your npm authentication. It is not a dry run.
 Before the first automated publish, a maintainer must complete these prerequisites:
 
 1. Verify npm ownership or publishing rights for the `@atomly` scope and both package names.
-   GitHub access to `rmolinamir/domain` does not establish npm ownership. Scope control is not verified.
+   GitHub access to `rmolinamir/dominion` does not establish npm ownership. Scope control is not verified.
 2. Create or bootstrap `@atomly/dominion-core` and `@atomly/dominion-node` as public packages under
    maintainer authentication if npm requires an initial publish before package settings exist.
    Coordinate those initial versions with the version pull request. Do not publish `0.0.0` by accident.
 3. For **each** package, configure an npm trusted publisher: GitHub owner `rmolinamir`, repository
-   `domain`, workflow filename `release.yml`, and no environment name. Enable the allowed action
+   `dominion`, workflow filename `release.yml`, and no environment name. Enable the allowed action
    **npm publish**, since the workflow publishes directly. It does not use staged publishing.
 4. Enable **Allow GitHub Actions to create and approve pull requests** in the repository's
    **Settings → Actions → General**. Repository rules must allow the version pull request to merge.

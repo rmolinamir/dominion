@@ -1,6 +1,6 @@
 # @atomly/dominion-node
 
-Node.js execution for [Dominion](https://github.com/rmolinamir/domain). Requires Node.js 22.20.0 or later
+Node.js execution for [Dominion](https://github.com/rmolinamir/dominion). Requires Node.js 22.20.0 or later
 and the matching compatible `@atomly/dominion-core` peer dependency. Packages are ESM-only.
 
 ```sh
@@ -47,5 +47,5 @@ Raised events are validated and returned after a successful commit. This package
 durable event storage, delivery, or automatic event-handler dispatch. Postgres, Redis, Express
 adapters, and the analyzer are not implemented yet.
 
-See the [complete working example](https://github.com/rmolinamir/domain#getting-started) and
-[package boundaries](https://github.com/rmolinamir/domain/blob/main/docs/packages.md). MIT licensed.
+See the [complete working example](https://github.com/rmolinamir/dominion#getting-started) and
+[package boundaries](https://github.com/rmolinamir/dominion/blob/main/docs/packages.md). MIT licensed.
