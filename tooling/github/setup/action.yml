@@ -1,0 +1,28 @@
+name: Setup and install
+description: Install the pinned pnpm version and workspace dependencies
+
+inputs:
+  node-version:
+    description: Node.js version
+    default: '22.20.0'
+  cache:
+    description: Cache the pnpm store (disable for releases)
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      with:
+        version: 10.12.4
+        run_install: false
+
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: ${{ inputs.cache == 'true' && 'pnpm' || '' }}
+        package-manager-cache: false
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

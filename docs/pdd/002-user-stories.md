@@ -1,460 +1,149 @@
 # User Stories
 
-These user stories are thought experiments used to sanity-check the concepts and terminology. The examples map the stories into possible APIs. They are not commitments; they exist to test coherence, terminology, and lifecycle assumptions. The emphasis is on how the concepts could compose, not on final syntax or naming.
+These stories illustrate the current direction. APIs are sketches, and host invocation,
+creation initialization, and event versioning remain open. They do not introduce a required
+application-service layer.
 
-Each story describes a business intent (command), how the framework coordinates execution (handlers + invariants), and which facts are emitted (events). Application services sit at the edge to orchestrate application concerns and execution, while domain handlers orchestrate the business logic and raise domain events.
-
-Let's dive into a few user stories.
-
-## Shared `GiftCard` Model
-
-The `GiftCard` context anchors the entity state and baseline invariants used across the stories, so each workflow starts from the same domain model. We define it first because every command and query needs a shared source of truth.
-
-The sections below reuse this model to explain how commands, handlers, and queries orchestrate business logic.
-
-### Entity
-
-The entity schema defines the persisted state and how the framework identifies instances. We use `defineEntity` so the framework can load state, apply invariants, and persist changes consistently. Commands use `target` to locate the entity to load, while `id` defines the identity the framework uses when persisting, rehydrating, or comparing aggregates.
+## Define a Gift-Card Domain
 
 ```ts
-export const GiftCard = defineEntity()
+export const GiftCard = defineAggregate('giftCards.GiftCard')
   .schema(
     z.object({
-      id: z.string().min(1),
-      remainingValue: z.number().int().nonnegative()
+      id: z.string(),
+      remainingValue: z.number().int().nonnegative(),
+      currency: z.string()
     })
   )
-  .id((state) => state.id)
+  .id((card) => card.id)
 
-export type GiftCardState = z.infer<typeof GiftCard.schema>
-```
-
-### Invariants
-
-Input-level constraints (e.g., `amount` being positive) are handled by schemas. Invariants focus on **state-based correctness** and remain first-class business concepts, so the framework can prevent invalid state transitions after the handlers update the state.
-
-```ts
-// Universally applicable invariants, as opposed to command-specific rules
-export const giftCardRules = defineInvariants()
-  .entity(GiftCard)
-  .check([
-    {
-      code: 'GIFT_CARD_NEGATIVE_BALANCE',
-      message: 'Gift card remaining value must never be negative',
-      check: (state) => state.remainingValue >= 0
-    }
-  ])
-```
-
-Invariants run at the beginning or end of the lifecycle based on `when`. If `when` targets a command, the invariants run before the command handler. If `when` targets an event, the invariants run after the event is raised. If `when` is omitted, the invariants default to the end of the command execution lifecycle. Command-specific invariants can be defined similarly:
-
-```ts
-// Command-specific invariants
-export const redeemCardRules = defineInvariants()
-  .entity(GiftCard)
-  .when(RedeemCard)
-  .check([
-    {
-      code: 'GIFT_CARD_INSUFFICIENT_BALANCE',
-      message: 'Cannot redeem more than the remaining gift card value',
-      check: (command, state) => command.amount <= state.remainingValue
-    }
-  ])
-
-// Event-specific invariants
-export const cardIssuedRules = defineInvariants()
-  .entity(GiftCard)
-  .when(CardIssued)
-  .check([
-    {
-      code: 'GIFT_CARD_INITIAL_BALANCE_MISMATCH',
-      message: 'Card issued amount must match the stored balance',
-      check: (event, state) => state.remainingValue === event.amount
-    }
-  ])
-```
-
-## Issue a Gift Card (Strongly Consistent Use Case)
-
-A single command execution boundary yields a consistent entity write and event publication.
-
-The example below uses `IssueCard` and `CardIssued` to show how the framework validates input, applies invariants, mutates state, and emits a fact in one execution boundary.
-
-This story starts at the edge with `issueCardService`, which accepts input and calls `issueCardHandler.execute`. The framework validates the command schema, loads or creates the `GiftCard` entity, runs invariants, and executes the `issueCardHandler`. The handler initializes the card balance, and the framework persists the updated state before publishing `CardIssued` as the resulting fact.
-
-```mermaid
-flowchart TD
-  HTTP[HTTP Request] --> App[Application Service]
-  App --> Exec[execute IssueCard]
-  Exec --> Load[Load/Create Entity]
-  Load --> Invariants[Run Invariants]
-  Invariants --> Handle[Run Command Handler]
-  Handle --> Persist[Persist Entity]
-  Persist --> Publish[Publish Events]
-```
-
-### Command
-
-The command captures intent and validates input so the framework can route and validate the request consistently. The `cardId` will be supplied by the application service when issuing a new card.
-
-```ts
-import { z } from 'zod'
-
-export const IssueCard = defineCommand()
+export const CardRedeemed = defineEvent('giftCards.CardRedeemed')
   .schema(
     z.object({
-      cardId: z.string().min(1),
-      amount: z.number().int().positive()
+      cardId: z.string(),
+      transactionId: z.string(),
+      amountMinor: z.number().int().positive(),
+      currency: z.string()
     })
   )
-  .target((command) => command.cardId)
 ```
 
-### Application Services (Edge Concerns Only)
+Definitions are composed into a typed domain after they are declared. Composition references
+load definitions imported from other modules and make their types available to consumers.
 
-Application services translate transport concerns into domain inputs and pick execution timing. They will also generate any new identifiers before executing or publishing commands, depending on whether the workflow runs locally or through messaging infrastructure. We use `defineApplicationService` to keep edge logic separate from domain decisions. Authentication helpers like `requireUser()` are optional conveniences, not core framework concepts.
+## Issue a Gift Card
 
-Application services *should* not:
+A host controller validates transport concerns and supplies a new card identifier. The issue
+operation creates an aggregate with a complete initial state, checks invariants, and records
+`CardIssued` as its outcome.
 
-* handle business logic
-* raise domain events
-* manage persistence
+Initial state must contain `id`, `remainingValue`, and `currency`. It must not depend on adding
+to an uninitialized balance. Creation policy and initial-state syntax are still undecided,
+so this story does not prescribe a creation builder.
 
-They *should*:
-
-* handle application concerns (auth, mapping, response shaping)
-* orchestrate command processing timeline: execute (immediate) vs. publish (messaging/distributed)
+## Redeem a Gift Card
 
 ```ts
-import crypto from 'node:crypto'
-
-export const issueCardService = defineApplicationService()
+export const redeemCard = defineCommand('RedeemCard')
   .input(
     z.object({
-      amount: z.number().int().positive()
+      cardId: z.string(),
+      transactionId: z.string(),
+      amountMinor: z.number().int().positive()
     })
   )
-  .handle(async (input) => {
-    await requireUser()
+  .aggregate(GiftCard)
+  .target((input) => input.cardId)
+  .handle((input, card) => {
+    const logger = useLogger()
 
-    const cardId = crypto.randomUUID()
+    if (input.amountMinor > card.remainingValue) {
+      return reject({ code: 'INSUFFICIENT_BALANCE' })
+    }
 
-    await issueCardHandler.execute({ cardId, amount: input.amount })
-
-    return { cardId }
-  })
-```
-
-### Command Handler
-
-Handlers apply domain decisions and emit events. The creation policy (always create, never create, or create if missing) will be defined alongside the handler so entity instantiation rules stay in the domain layer.
-
-```ts
-export const issueCardHandler = defineCommandHandler()
-  .entity(GiftCard)
-  .command(IssueCard)
-  .creation('always')
-  .handle((command, state) => {
-    state.id = command.cardId
-    state.remainingValue = command.amount
-
-    raise(CardIssued, {
-      cardId: command.cardId,
-      amount: command.amount
-    })
-  })
-```
-
-### Event
-
-The event records the outcome in the same domain language so downstream consumers can react without re-running logic.
-
-```ts
-export const CardIssued = defineEvent()
-  .schema(
-    z.object({
-      cardId: z.string().min(1),
-      amount: z.number().int().positive()
-    })
-  )
-```
-
-### Creation Policy Variant
-
-Creation policies allow commands to create a new entity when appropriate without relaxing invariants; keeping them on the handler makes the lifecycle rule explicit in the domain layer.
-
-```ts
-export const issueOrRechargeCardHandler = defineCommandHandler()
-  .entity(GiftCard)
-  .command(IssueOrRechargeCard)
-  .creation('if_missing')
-  .handle((command, state) => {
-    state.id = command.cardId
-    state.remainingValue += command.amount
-
-    raise(CardIssued, {
-      cardId: command.cardId,
-      amount: command.amount
-    })
-  })
-```
-
-## Redeem a Gift Card (Temporally Decoupled & Eventually Consistent Use Case)
-
-The command will be accepted now and will converge later through queued execution. The framework will run invariants and handlers when the command is dequeued, not at request time.
-
-The example below uses `RedeemCard` and `CardRedeemed` to show how the framework queues work, runs invariants on execution, and publishes the resulting event.
-
-This story begins with `redeemCardService`, which calls `redeemCardHandler.publish` to messaging (future behavior). The framework will store the work and later execute it by loading the `GiftCard`, enforcing `redeemCardRules`, running `redeemCardHandler`, and publishing `CardRedeemed`. The handler subtracts the redeemed amount from the remaining balance and emits the redemption event. The delay makes the workflow eventually consistent because the command is accepted immediately but applied later, allowing asynchronous processing and retries while preserving domain rules.
-
-```mermaid
-flowchart TD
-  HTTP[HTTP Request] --> App[Application Service]
-App --> Publish[publish RedeemCard]
-Publish --> Queue[Queued Execution]
-  Queue --> Load[Load Entity]
-  Load --> Invariants[Run Invariants]
-  Invariants --> Handle[Run Command Handler]
-  Handle --> Persist[Persist Entity]
-  Persist --> Publish[Publish Events]
-```
-
-### Command
-
-The command expresses intent to redeem so validation and routing remain explicit.
-
-```ts
-import { z } from 'zod'
-
-export const RedeemCard = defineCommand()
-  .schema(
-    z.object({
-      cardId: z.string().min(1),
-      transactionId: z.string().min(1),
-      amount: z.number().int().positive()
-    })
-  )
-  .target((command) => command.cardId)
-```
-
-### Application Service
-
-The application service accepts the request, applies edge concerns, and publishes the command to messaging for later execution. This makes the eventual consistency boundary explicit in the API.
-
-```ts
-export const redeemCardService = defineApplicationService()
-  .input(RedeemCard.schema)
-  .handle(async (input) => {
-    await requireUser()
-
-    await redeemCardHandler.publish(input) // future transport adapter
-
-    return { accepted: true }
-  })
-```
-
-### Command Handler
-
-Handlers apply domain decisions and emit events. The creation policy (always create, never create, or create if missing) will be defined alongside the handler so entity instantiation rules stay in the domain layer.
-
-```ts
-export const redeemCardHandler = defineCommandHandler()
-  .entity(GiftCard)
-  .command(RedeemCard)
-  .creation('never')
-  .handle((command, state) => {
-    //Preconditions already ran; postconditions will run before commit.
-    state.remainingValue -= command.amount
+    card.remainingValue -= input.amountMinor
 
     raise(CardRedeemed, {
-      cardId: state.id,
-      transactionId: command.transactionId,
-      amount: command.amount
+      cardId: card.id,
+      transactionId: input.transactionId,
+      amountMinor: input.amountMinor,
+      currency: card.currency
+    })
+
+    logger.info('Redemption staged', {
+      transactionId: input.transactionId
     })
   })
 ```
 
-### Event
+Execution loads the aggregate and revision, runs business checks, validates resulting state,
+and performs a conditional write. The event is buffered until the attempt succeeds. Logging
+that a change is staged does not claim that its transaction committed.
 
-The event confirms the redemption has been recorded so downstream consumers can react without re-running logic.
+Two concurrent redemptions of 80 against balance 100 may both pass their initial check. Only
+one may commit against the loaded revision. A retried loser reloads balance 20 and rejects.
 
-```ts
-export const CardRedeemed = defineEvent()
-  .schema(
-    z.object({
-      cardId: z.string().min(1),
-      transactionId: z.string().min(1),
-      amount: z.number().int().positive()
-    })
-  )
-```
+A host may execute the command immediately or arrange queued processing. FIFO queue setup,
+acceptance acknowledgements, and transport retries belong to adapters. Queue acceptance is
+not proof that the business command succeeded.
 
-## Check Gift Card Balance (Read Use Case)
+## Check a Balance
 
-The `QueryHandler` reads from a read model. We use `defineQuery` and `defineQueryHandler` so reads stay explicit and separate from command workflows.
-
-The query story shows how read models stay isolated from write-side invariants and handlers.
-
-This story uses `GetGiftCardBalance` as a read-only request. The framework will validate the query schema, route it to `getGiftCardBalance`, and return the read model without touching domain state.
-
-```mermaid
-flowchart TD
-  Query[GiftCard.GetBalance] --> Handler[Query Handler]
-  Handler --> ReadModel[Read Model]
-  ReadModel --> Result[Return Balance]
-```
-
-### Query
-
-The query describes the read intent and the expected result shape, which lets the framework validate inputs and responses.
+A query reads card state without modifying it. If a missing card returns `null`, its result
+schema must permit that value:
 
 ```ts
-import { z } from 'zod'
-
-export const GetGiftCardBalance = defineQuery()
-  .schema(
-    z.object({
-      cardId: z.string().min(1)
-    })
-  )
-  .result(
-    z.object({
-      cardId: z.string().min(1),
-      remainingValue: z.number()
-    })
-  )
+const BalanceResult = z.object({
+  cardId: z.string(),
+  remainingValue: z.number().int().nonnegative(),
+  currency: z.string()
+}).nullable()
 ```
 
-### Query Handler (Domain Layer)
+The final query definition and execution API remain open. A balance query cannot replace the
+concurrency-protected balance check in the redemption command.
 
-The handler reads from the read model and returns a domain-shaped response without mutating state.
+## Record a Redemption in Ledger
+
+Ledger consumes the public `CardRedeemed` definition without importing GiftCards repositories
+or commands. Its event handler translates the fact into a local operation:
 
 ```ts
-export const getGiftCardBalance = defineQueryHandler()
-  .query(GetGiftCardBalance)
-  .handle(async (query) => {
-    const giftCardReadModel = useRepository(GiftCardReadModel)
-    const row = await giftCardReadModel.getById(query.cardId)
-    if (!row) return null
-    return { cardId: row.id, remainingValue: row.remainingValue }
-  })
-```
-
-## Record Redemption in Ledger (Cross-Boundary Async Flow)
-
-The `Ledger` context reacts to `GiftCard.CardRedeemed`, translating the upstream fact into a local command and event while preserving boundary language. This shows how the framework keeps cross-boundary workflows decoupled through events.
-
-This story starts when the `Ledger` event handler receives `GiftCard.CardRedeemed`. The handler publishes `RecordRedemption` to messaging, the framework executes it against `Ledger`, and `recordRedemptionHandler` raises `RedemptionRecorded`. The ledger records the transaction for reporting and reconciliation, keeping the workflow moving across boundaries without direct calls.
-
-```mermaid
-flowchart TD
-  Redeemed[GiftCard.CardRedeemed] --> Handler[Ledger Event Handler]
-  Handler --> Publish[Publish Ledger.RecordRedemption]
-  Publish --> LedgerHandler[Ledger Command Handler]
-  LedgerHandler --> Persist[Persist Ledger]
-  Persist --> Publish[Publish Ledger.RedemptionRecorded]
-```
-
-
-### Event Handler (Reacts to Fact → Enqueues Local Command)
-
-The handler translates the inbound fact into a local command, keeping the boundary decoupled while still propagating the workflow.
-
-```ts
-import crypto from 'node:crypto'
-
-export const onCardRedeemed = defineEventHandler()
+export const onCardRedeemed = defineEventHandler('RecordRedemption')
   .on(CardRedeemed)
   .handle(async (event) => {
-    await recordRedemptionHandler.publish({
-      ledgerId: crypto.randomUUID(),
-      cardId: event.cardId,
+    return recordRedemption.execute({
       transactionId: event.transactionId,
-      amount: event.amount
-    }) // future transport adapter
+      sourceCardId: event.cardId,
+      amountMinor: event.amountMinor,
+      currency: event.currency
+    })
   })
 ```
 
-### Command
+Event identity survives local symbol renames. Cross-app package distribution and versioning
+remain open. The adapter
+configures publishers and queues. Ledger records business uniqueness by transaction identity
+rather than generating a new business identity on every delivery.
 
-The command represents `Ledger` intent so routing and validation remain explicit in this boundary.
-
-```ts
-import { z } from 'zod'
-
-export const RecordRedemption = defineCommand()
-  .schema(
-    z.object({
-      ledgerId: z.string().min(1),
-      cardId: z.string().min(1),
-      transactionId: z.string().min(1),
-      amount: z.number().int().positive()
-    })
-  )
-  .target((command) => command.ledgerId)
-```
-
-### Entity and Command Handler
-
-The entity models the ledger state, while the handler applies the command to produce the event, keeping business decisions inside the boundary. If the ledger needs line items, entries can be modeled as child entities under the root. A `defineEntity` with a `parent` field will be treated as a child entity for routing purposes. Events raised from child-aware handlers carry the root aggregate identity in context for publishing and tracing.
+## Compose the Context for a Host
 
 ```ts
-import { z } from 'zod'
-
-const LedgerEntrySchema = z.object({
-  entryId: z.string().min(1),
-  cardId: z.string().min(1),
-  transactionId: z.string().min(1),
-  amount: z.number().int().positive()
+export const giftCards = defineDomain('giftCards', {
+  aggregates: { GiftCard },
+  commands: { redeem: redeemCard },
+  events: { CardRedeemed }
 })
 
-export const Ledger = defineEntity()
-  .schema(
-    z.object({
-      id: z.string().min(1),
-      entries: z.array(LedgerEntrySchema)
-    })
-  )
-  .id((state) => state.id)
-
-export const LedgerEntry = defineEntity()
-  .parent(Ledger)
-  .schema(LedgerEntrySchema)
-  .id((entry) => entry.entryId)
-
-export const recordRedemptionHandler = defineCommandHandler()
-  .entity(Ledger)
-  .command(RecordRedemption)
-  .creation('always')
-  .handle((command, state) => {
-    state.entries.push({
-      entryId: command.transactionId,
-      cardId: command.cardId,
-      transactionId: command.transactionId,
-      amount: command.amount
-    })
-
-    raise(RedemptionRecorded, {
-      ledgerId: command.ledgerId,
-      cardId: command.cardId,
-      transactionId: command.transactionId,
-      amount: command.amount
-    })
-  })
+export const commerce = defineContext('commerce', {
+  domains: { giftCards, checkout }
+})
 ```
 
-### Event
+NestJS or another host uses this definition to configure execution and controllers. The context
+does not start. There is no agreed binding or dependency-injection API yet.
 
-The event captures the recorded fact for downstream consumers and keeps the `Ledger` boundary in control of its language.
-
-```ts
-export const RedemptionRecorded = defineEvent()
-  .schema(
-    z.object({
-      ledgerId: z.string().min(1),
-      cardId: z.string().min(1),
-      transactionId: z.string().min(1),
-      amount: z.number().int().positive()
-    })
-  )
-```
+Checkout directly invoking a GiftCards write is considered a code smell. Each write command
+keeps its own transaction. If the nested redemption commits and Checkout later fails, the
+redemption remains committed. Longer external workflows can use explicit business states
+and queued processing rather than assuming a distributed rollback.

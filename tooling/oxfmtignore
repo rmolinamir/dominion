@@ -1,0 +1,7 @@
+**/dist/**
+**/node_modules/**
+pnpm-lock.yaml
+coverage/**
+# Design documents retain their existing formatting.
+**/docs/pdd/**
+**/docs/vision.md

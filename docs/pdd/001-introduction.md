@@ -1,5 +1,12 @@
 # Introduction
 
-This document set is a **brainstorming and sanity-check "board"** that explores how the vision in [`docs/vision.md`](../vision.md) could translate into framework concepts. It is intentionally **non-binding** and should be read as a starting reference rather than a committed design. The language uses future tense for readability, but nothing here is finalized.
+This preliminary design explores the [vision](../vision.md) through a consumer API centered on
+explicit domain language. It remains nonbinding, and its examples are not implementation contracts.
 
-The goal is a **candidate application-facing model** for discussion, focused on public concepts and lifecycle guarantees instead of implementation details. The framing is DDD-inspired and centered on explicit domain language.
+The latest direction uses explicit typed domain composition, passive contexts, executable
+commands, aggregates, public events, and an analyzer. It supersedes the earlier required
+application-service and separate command-handler layers.
+
+Hosts such as NestJS own startup, controllers, and infrastructure integration. Contexts remain
+definitions. The [open questions](010-open-questions.md) distinguish unresolved choices from
+the current direction.

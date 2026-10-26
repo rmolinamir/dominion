@@ -1,112 +1,50 @@
 # Repositories
 
-Repositories are the persistence ports for entities and read models. They provide explicit load/save access while keeping transaction boundaries and identity resolution inside the framework.
+Repositories are persistence ports for aggregate roots and read access. They load roots with
+their owned children and participate in the active execution transaction.
 
-## Responsibilities
+## Aggregate Writes
 
-- Load entity state by identity and return a tracked instance.
-- Persist entity state after command execution.
-- Expose read models for query handlers and application services.
-- Integrate with the request-scoped transaction lifecycle.
+A loaded aggregate includes state and a revision. Saving must atomically compare that revision
+with the stored revision before changing state. A blind upsert is insufficient.
 
-## Repository Mapping Options
-
-The framework needs to know which repository owns an entity when auto-loading or auto-saving. Two options are worth keeping in mind.
-
-### Option A: Explicit Registry Mapping
-
-Register a repository for each entity in a provider registry.
+An illustrative adapter contract is:
 
 ```ts
-const registry = createProviderRegistry()
-
-registry.registerRepository(GiftCard, new GiftCardRepository(pg))
-
-const framework = createFramework({ providers: registry })
-```
-
-### Option B: Repository Declares Entity
-
-A repository declares which entity it owns, and the framework builds the mapping at boot.
-
-```ts
-export abstract class EntityRepository<TState> {
-  static entity: EntityDefinition<unknown>
+type LoadedAggregate<TState> = {
+  state: TState
+  revision: number
 }
 
-export class GiftCardRepository extends EntityRepository<GiftCardState> {
-  static entity = GiftCard
-
-  async load(id: string) {
-    /* ... */
-    return null
-  }
-
-  async save(state: GiftCardState) {
-    /* ... */
-  }
-}
+type SaveResult =
+  | { ok: true; revision: number }
+  | { ok: false; code: 'CONCURRENT_MODIFICATION' }
 ```
 
-Both approaches should be discussed before we choose the final direction.
+The transaction must cover root and child writes. An adapter may use multiple tables, but a
+child cannot be saved through an independent write repository. The root remains the consistency
+boundary. New roots require atomic uniqueness checks.
 
-## Entity Repositories
+The core must receive a structured conflict rather than treating an unchecked write as success.
+Revision representation and the final load/save interface remain open.
 
-Entity repositories provide the persistence port for command handlers and application services.
+## Transactions and Delivery
 
-```ts
-export abstract class PostgresRepository<TState> extends EntityRepository<TState> {
-  constructor(protected readonly tx: PgTransaction) {
-    super()
-  }
+Repositories use the transaction supplied by the command execution scope. A `useTransaction()`
+hook is proposed alongside existing logger and provider hooks.
 
-  protected get db() {
-    return this.tx.context
-  }
-}
+Delivery adapters may coordinate outbound event records with state persistence. The integration
+must state its guarantees without requiring business handlers to manage outbox records.
 
-export class PostgresGiftCardRepository extends PostgresRepository<GiftCardState> {
-  async load(id: string) {
-    return this.db.query.giftCards.findFirst({ where: eq(giftCards.id, id) })
-  }
+## Registration and Reads
 
-  async save(state: GiftCardState) {
-    await this.db.insert(giftCards).values(state).onConflictDoUpdate({
-      target: giftCards.id,
-      set: state
-    })
-  }
-}
-```
+The host supplies concrete repositories. Explicit token registration and repository-declared
+aggregate ownership remain possible integration approaches. Neither has been selected as the
+final consumer API.
 
-## Read Models
+Queries can use repository read access without modifying aggregate state. Advisory reads must
+not replace concurrency-protected checks during a write. Query result schemas must represent
+missing values explicitly when a query can return `null`.
 
-Read models power queries without touching write-side invariants. The read model could also be a model separate from the Entity itself, but that will be out of scope for this PDD, and likely v0 of the framework.
-
-```ts
-export const getGiftCardBalance = defineQueryHandler()
-  .query(GetGiftCardBalance)
-  .handle(async (query) => {
-    const repository = useRepository(GiftCardRepository)
-    return repository.getById(query.cardId)
-  })
-```
-
-## Repository Access in Services
-
-Application services can use repositories to fetch context before orchestrating command execution so handlers stay focused on domain decisions.
-
-```ts
-export const redeemCardService = defineApplicationService()
-  .input(RedeemCard.schema)
-  .handle(async (command) => {
-    const giftCardRepository = useRepository(GiftCardRepository)
-    const card = await giftCardRepository.load(command.cardId)
-
-    if (!card) return { accepted: false }
-
-    await redeemCardHandler.execute(command)
-
-    return { accepted: true }
-  })
-```
+Separate projections, read-model definitions, repository access across domains, and query
+execution syntax remain open design questions.

@@ -5,7 +5,7 @@ Observability should be a first-class framework concern so workflows remain unde
 ## Responsibilities
 
 - Extract and propagate W3C trace context across HTTP, queues, and event handlers.
-- Create spans around application services, command execution, event handling, and query handling.
+- Create spans around command execution, event handling, and query handling.
 - Correlate commands/events/queries with trace identifiers to preserve causality.
 - Export traces, metrics, and logs via OpenTelemetry/OTLP or equivalent adapters.
 
@@ -21,7 +21,7 @@ Observability adapters translate framework signals into concrete tooling while k
 
 ### Logging
 
-Logging adapters emit structured logs with request-scoped context (trace ID, boundary, command/event name). They should support configurable levels and pluggable formatters (JSON, logfmt).
+Logging adapters emit structured logs with execution-scoped context (trace ID, boundary, command/event name). They should support configurable levels and pluggable formatters (JSON, logfmt).
 
 ```ts
 export abstract class LoggerAdapter {
@@ -45,7 +45,7 @@ export abstract class MetricsAdapter {
 
 ### Tracing
 
-Tracing adapters centralize span creation and context propagation. The framework can auto-wrap application services, handlers, and query paths while still allowing custom spans.
+Tracing adapters centralize span creation and context propagation. The framework can instrument commands, event handlers, and query paths while still allowing custom spans.
 
 ```ts
 export abstract class TracingAdapter {
@@ -56,5 +56,8 @@ export abstract class TracingAdapter {
 ## Integration Notes
 
 - Framework and router instrumentation should share one OpenTelemetry SDK so spans land in the same pipeline.
-- Adapter registration happens at boot; request-scoped access uses `useLogger`, `useMetrics`, and `useTracer` via the provider registry.
+- The host supplies adapters; execution-scoped access uses `useLogger`, `useMetrics`, and `useTracer`. The final host registration interface remains open.
 - Application code should not manually construct tracing metadata.
+
+Trace identifiers support correlation. Durable event occurrence, causation, and business identity
+serve different purposes and must not depend on sampled traces being retained.

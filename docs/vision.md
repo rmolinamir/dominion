@@ -1,4 +1,4 @@
-# Domain-First Framework: Vision and Principles
+# Dominion: Vision and Principles
 
 ## The Problem Space
 
@@ -89,7 +89,7 @@ The framework will be valuable for small projects and scale upward. Teams won’
 
 The framework will be designed with a domain-first approach, focusing on making domain logic intuitive and clear. At its core, it will emphasize the use of **commands** to express intended actions, **events** to capture what has occurred, and **queries** to request information. The framework’s primary job will be to make these concepts feel natural in application code and aligned with business language.
 
-We will also not re-implement HTTP frameworks or compete with Express/Fastify/Hono/etc. Applications will run inside the server framework of their choice, while this framework focuses on application services and domain modeling. Where needed, it will integrate cleanly with existing servers and the networking realities of event-driven systems.
+We will also not re-implement HTTP frameworks or compete with Express/Fastify/Hono/etc. Applications will run inside the server framework of their choice, while this framework focuses on executable operations and domain modeling. Where needed, it will integrate cleanly with existing servers and the networking realities of event-driven systems.
 
 ### Messages
 
@@ -99,18 +99,38 @@ We will also not re-implement HTTP frameworks or compete with Express/Fastify/Ho
 
 These message types will serve as the primary mechanism for encoding domain workflows and preserving intent in the codebase.
 
-### Application Services
+### Domains and Contexts
 
-The framework will include a clear application services layer that coordinates domain behavior while keeping business rules explicit.
+Explicit domain composition will collect related definitions and preserve their inferred types.
+A passive context definition will
+compose multiple domains. Hosts such as NestJS will use those definitions and own server
+startup, controllers, and infrastructure lifecycle.
 
-* **Application Services** orchestrate use cases.
-* **Command Handlers** represent the same kind of orchestration, but are **temporally decoupled**: they operate in an asynchronous timeline rather than immediately in the caller’s timeline.
+A framework domain will group related models and operations. It will not automatically imply
+a DDD subdomain, bounded context, or deployment. Reusing domains across contexts will remain
+possible, even when it indicates a design smell.
 
-The distinction will not be responsibility—it will be **time**.
+### Executable Operations
+
+Commands will combine input definition and executable behavior. A separate command handler
+and forwarding application service will not be required. Execution timing will be independent
+of the operation's business responsibility.
 
 ### Domain Modeling
 
-The framework will support domain modeling inspired by DDD without treating DDD as a rigid checklist. The core unit will be **entities** (including groupings commonly modeled as aggregates), and the framework will provide conventions to keep invariants and business rules close to the domain model.
+Entities will express identity. Aggregates will define consistency boundaries around roots
+and owned child entities. Commands will preserve aggregate invariants, and persistence will
+protect writes against concurrency conflicts.
+
+### Public Events and Analysis
+
+All event definitions will be public. Handlers will raise events directly without duplicate
+emission or publication lists. Event identity will survive local symbol renames. Wire identity
+encoding and versioning remain design questions.
+
+An analyzer will discover relationships in ordinary TypeScript. Explicit domain composition
+will supply the definition catalog. Diagnostics will be configurable, and unresolved
+relationships will remain explicit rather than being presented as a complete graph.
 
 ### Temporal Decoupling as a First-Class Concept
 
@@ -118,7 +138,7 @@ The framework will treat temporal decoupling as a core architectural concept. So
 
 ### Dependency Management
 
-The framework will support dependency management / DI as a core capability for composing real applications. It will aim to provide structure without forcing a single programming style. The requirement will be clean composition and testability; the implementation approach will be decided later.
+The framework will integrate with host dependency management. Execution-scoped hooks will make providers, logging, and transactions available through AsyncLocalStorage. Host integration and provider lifetimes remain design questions.
 
 ### Observability and Traceability
 
@@ -127,3 +147,6 @@ The framework will include first-class concepts for traceability so message flow
 * clear lineage between messages (what caused what)
 * a consistent narrative across commands, events, and handlers over time
 * support for modern tracing standards and tooling
+
+Durability, transaction implementation, and queue topology will remain behind adapters. Their
+guarantees must be explicit without exposing infrastructure mechanics throughout domain code.

@@ -1,226 +1,201 @@
 # Core Concepts
 
-## Concepts and Definition APIs
+## Current Direction
 
-The framework concept set is organized around explicit definition APIs that preserve language, boundaries, and constraints. Concepts are declared independently to keep intent clear.
+The core consumer API uses explicit, typed composition and ordinary TypeScript functions.
+The examples below are illustrative API sketches, not implemented interfaces.
 
-* `defineApplicationService`: edge orchestration and timing
-* `defineCommand`: intent to change state
-* `defineCommandHandler`: domain decision point for commands
-* `defineEntity`: domain state and identity
-* `defineInvariants`: business rules around state transitions
-* `defineEvent`: change that occurred
-* `defineEventHandler`: reaction to domain events
-* `defineQuery`: question about the system
-* `defineQueryHandler`: read model access
-* `defineDomainService`: multi-read domain logic with constraints
+- `defineDomain` composes existing definitions into a typed domain interface.
+- `defineContext` composes domains into a passive context definition.
+- `defineAggregate` defines a root and its consistency boundary.
+- `defineEntity` defines identifiable state, including children owned by an aggregate.
+- `defineCommand` defines an executable operation, including its input and behavior.
+- `defineEvent` defines a fact that consumers can react to.
+- `defineEventHandler` defines a reaction to an event.
+- Queries and domain services remain relevant concepts. Their final definition APIs are open.
 
-Schemas will be co-located with the concept definition. These APIs are illustrative and may change as we refine naming, validation, and handler structure.
+A command does not need a separate command-handler definition or a forwarding application
+service. This supersedes the earlier `defineCommandHandler` and `defineApplicationService`
+examples. The framework does not require an effects DSL, emitter factories, or duplicate
+`emits` and `publishes` lists.
 
-These decisions should stay aligned with DDD principles and the vision’s focus on explicit language, boundaries, and invariant preservation.
-
-## Examples
-
-These snippets show the shape of each definition API. Examples use `Zod` for readability; the framework will accept any `Standard Schema`-compatible validator under the hood.
-
-### Application Service
+## Domains and Contexts
 
 ```ts
-export const issueCardService = defineApplicationService()
-  .input(
-    z.object({
-      cardId: z.string().min(1),
-      amount: z.number().int().positive()
-    })
-  )
-  .handle(async (input) => issueCardHandler.execute(input))
-```
-
-### Command
-
-```ts
-export const IssueCard = defineCommand()
+export const GiftCard = defineAggregate('giftCards.GiftCard')
   .schema(
     z.object({
-      cardId: z.string().min(1),
-      amount: z.number().int().positive()
+      id: z.string(),
+      remainingValue: z.number().int().nonnegative(),
+      currency: z.string()
     })
   )
-  .target((command) => command.cardId)
-```
+  .id((card) => card.id)
 
-### Command Handler
+export const CardRedeemed = defineEvent('giftCards.CardRedeemed')
+  .schema(
+    z.object({
+      cardId: z.string(),
+      transactionId: z.string(),
+      amountMinor: z.number().int().positive(),
+      currency: z.string()
+    })
+  )
 
-```ts
-export const issueCardHandler = defineCommandHandler()
-  .entity(GiftCard)
-  .command(IssueCard)
-  .creation('always')
-  .handle((command, state) => {
-    state.id = command.cardId
-    state.remainingValue = command.amount
+export const redeemCard = defineCommand('RedeemCard')
+  .input(
+    z.object({
+      cardId: z.string(),
+      transactionId: z.string(),
+      amountMinor: z.number().int().positive()
+    })
+  )
+  .aggregate(GiftCard)
+  .target((input) => input.cardId)
+  .handle((input, card) => {
+    if (input.amountMinor > card.remainingValue) {
+      return reject({ code: 'INSUFFICIENT_BALANCE' })
+    }
 
-    raise(CardIssued, {
-      cardId: command.cardId,
-      amount: command.amount
+    card.remainingValue -= input.amountMinor
+
+    raise(CardRedeemed, {
+      cardId: card.id,
+      transactionId: input.transactionId,
+      amountMinor: input.amountMinor,
+      currency: card.currency
     })
   })
 ```
 
-Entity-bound handlers require a command with a `target` function. Commands without a target cannot bind to an entity; the handler should be configured without `.entity(...)` and manage repository access manually. A command with a `target` but no `.entity(...)` on the handler is an open design choice (stateless handler vs configuration error).
+Schemas stay with their definitions. Examples use Zod, while the validation direction remains
+Standard Schema compatibility. Wire-schema export may need a narrower supported subset.
 
-### Entity
-
-```ts
-export const GiftCard = defineEntity()
-  .schema(
-    z.object({
-      id: z.string().min(1),
-      remainingValue: z.number().int().nonnegative()
-    })
-  )
-  .id((state) => state.id)
-```
-
-#### Class-based Entity API
-
-Entities can remain simple classes while command handlers are expressed as composable subclasses. The handler class owns the command metadata and the `handle` method, and composing it into the entity binds the handler to that entity instance (so `this` is the state).
+Definitions are created first and then composed into a domain. References can be imported
+from separate files:
 
 ```ts
-type CommandType<T> = T extends CommandDefinition<infer Input> ? Input : never
-
-abstract class Entity<TId = string> {
-  abstract id: TId
-  equals(other: Entity<TId>) {
-    return this.constructor === other.constructor && this.id === other.id
-  }
-}
-
-class BaseModel extends Entity {
-  constructor(
-    public id: string,
-    public remainingValue: number
-  ) {}
-}
-
-class RedeemCardHandler extends CommandHandler<BaseModel>({
-  command: RedeemCard,
-  creation: 'never'
-}) {
-  handle(command: CommandType<typeof RedeemCard>) {
-    this.balance -= command.amount
-    raise(CardRedeemed, { cardId: command.cardId, amount: command.amount })
-  }
-}
-
-class GiftCard extends compose(BaseModel, RedeemCardHandler) {}
-
-withContext(() => {
-  const giftCard = new GiftCard('123', 100)
-  giftCard.redeem(50)
+export const giftCards = defineDomain('giftCards', {
+  aggregates: { GiftCard },
+  commands: { redeem: redeemCard },
+  events: { CardRedeemed }
 })
 ```
 
-### Invariants
+This object defines the domain's typed interface. TypeScript can infer
+`giftCards.commands.redeem` from the supplied definitions. A scoped factory could mutate a
+runtime registry, but it would not automatically widen the type of an existing domain variable.
+
+A context composes those domains through a named object:
 
 ```ts
-export const giftCardRules = defineInvariants()
-  .entity(GiftCard)
-  .check([
-    {
-      code: 'GIFT_CARD_NEGATIVE_BALANCE',
-      message: 'Gift card remaining value must never be negative',
-      check: (state) => state.remainingValue >= 0
-    }
-  ])
+export const commerce = defineContext('commerce', {
+  domains: { giftCards, checkout }
+})
 ```
 
-### Event
+Here, a domain is a named group of related definitions. A context composes those groups.
+A framework domain does not automatically correspond to a DDD subdomain or bounded context.
+Context ownership, language, and relationships still matter independently of deployment.
+
+A domain may be reused in more than one context. This can indicate a design smell, but it
+must not be prohibited. Any analyzer diagnostic for this reuse should be configurable.
+
+Contexts do not start, open connections, or own server lifecycle. A host such as NestJS
+uses their definitions. The host integration interface remains open.
+
+## Aggregates and Child Entities
+
+An entity has identity. An aggregate defines the root and owned state that must remain
+consistent together. The distinction must affect execution and persistence, not just naming.
 
 ```ts
-export const CardIssued = defineEvent()
+export const OrderLine = defineEntity('OrderLine')
   .schema(
     z.object({
-      cardId: z.string().min(1),
-      amount: z.number().int().positive()
+      id: z.string(),
+      productId: z.string(),
+      quantity: z.number().int().positive(),
+      unitPriceMinor: z.number().int().nonnegative()
     })
   )
+  .id((line) => line.id)
+
+export const Order = defineAggregate('Order')
+  .schema(
+    z.object({
+      id: z.string(),
+      status: z.enum(['draft', 'submitted']),
+      lines: z.array(OrderLine.schema)
+    })
+  )
+  .id((order) => order.id)
+  .children({ lines: OrderLine })
 ```
 
-### Event Handler
+The proposed `.children(...)` method records ownership and child identity. Children load and
+persist through the root, even if an adapter stores them in separate tables. They do not
+have an independent write repository. The root revision protects the entire aggregate.
+
+The final syntax for invariant attachment and initial state is unresolved. Every aggregate
+write must validate its resulting state and mandatory invariants. New aggregates need complete
+initial state, including child collections, rather than mutations of undefined fields.
+
+## Events and Reactions
+
+All events are public. There is no separate integration-event definition or optional public
+visibility marker. Public availability does not require broadcasting every event everywhere.
+
+A receiving context can import an event schema and type without importing the producer's
+implementation. A producer-owned package is one possible distribution mechanism. Event identity
+must survive file or local export renames. An explicit event name scoped by its domain is the
+current basis for that identity. The initial implementation uses an explicit qualified event
+name, such as `giftCards.CardRedeemed`; composing a domain does not rewrite it. Package generation
+and versioning remain open.
 
 ```ts
-export const onCardIssued = defineEventHandler()
-  .on(CardIssued)
+// CardRedeemed is imported from the producer's public event definitions.
+export const onCardRedeemed = defineEventHandler('RecordRedemption')
+  .on(CardRedeemed)
   .handle(async (event) => {
-    await notifyCardIssuedHandler.publish({ cardId: event.cardId })
+    return recordRedemption.execute({
+      transactionId: event.transactionId,
+      sourceCardId: event.cardId,
+      amountMinor: event.amountMinor,
+      currency: event.currency
+    })
   })
 ```
 
-### Query
+The receiver translates facts into its own operations and language. Queue names, publishers,
+subscriptions, and distribution across replicas belong to adapters and deployment configuration.
 
-```ts
-export const GetGiftCardBalance = defineQuery()
-  .schema(
-    z.object({
-      cardId: z.string().min(1)
-    })
-  )
-  .result(
-    z.object({
-      cardId: z.string().min(1),
-      remainingValue: z.number().int().nonnegative()
-    })
-  )
-```
+## Catalog and Analyzer
 
-### Query Handler
+Explicit domain composition supplies the definition catalog and typed interface. References to
+imported definitions also load their modules. A file not referenced by composition is not
+implicitly included. An optional diagnostic for unintentionally omitted definitions remains
+an open tooling choice.
 
-```ts
-export const getGiftCardBalance = defineQueryHandler()
-  .query(GetGiftCardBalance)
-  .handle(async (query) => {
-    const readModel = useRepository(GiftCardReadModel)
-    return readModel.getById(query.cardId)
-  })
-```
+The composition list defines membership. It does not duplicate behavioral relationships such
+as which events a command raises; those remain the analyzer's responsibility.
 
-### Domain Service
+The analyzer inspects TypeScript symbols to discover relationships such as:
 
-```ts
-export const assessRedemption = defineDomainService()
-  .input(
-    z.object({
-      cardId: z.string().min(1),
-      amount: z.number().int().positive()
-    })
-  )
-  .handle(async (input) => {
-    const readModel = useRepository(GiftCardReadModel)
-    const card = await readModel.getById(input.cardId)
-    return { allowed: Boolean(card && card.remainingValue >= input.amount) }
-  })
-```
+- Events raised by commands.
+- Provider and repository lookups.
+- Calls between commands, queries, and other operations.
+- Definition names and source locations.
 
-## Runtime Lifecycle
+Ordinary handlers remain ordinary TypeScript. Dynamic selection and indirect calls may leave
+relationships unresolved. Catalogs must distinguish known, unresolved, and runtime-observed
+relationships rather than claim complete analysis.
 
-The runtime lifecycle and execution semantics are described in [`docs/pdd/004-runtime-model.md`](004-runtime-model.md).
+Analyzer strictness is configurable. Which findings are informational, warnings, or errors
+is a project policy. Whether execution requires a generated catalog is still open.
 
-## Observability
+## Related Documents
 
-Observability is a framework-owned concern that should stay consistent across transports and handlers. The detailed observability model lives in [`docs/pdd/008-observability.md`](008-observability.md).
-
-## Boundaries
-
-* Each boundary owns its language and models.
-* Boundaries communicate via commands/events, not direct calls into another boundary’s domain.
-* Event handlers live in the receiving boundary and translate inbound facts into local actions.
-
-### Domain Events vs Integration Events
-
-We may introduce a distinction between:
-
-* **Domain events**: internal facts in a boundary’s ubiquitous language
-* **Integration events**: stable, cross-boundary contracts with explicit versioning/compatibility expectations
-
-If adopted, cross-boundary communication would prefer integration events, while domain events remain internal. This decision is intentionally deferred for the time being.
+Execution and concurrency are described in [Runtime Model](004-runtime-model.md).
+Host integration is described in [Host Integration](005-application-services.md).
+Remaining decisions are collected in [Open Questions](010-open-questions.md).

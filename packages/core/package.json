@@ -1,0 +1,40 @@
+{
+  "name": "@atomly/dominion-core",
+  "version": "0.0.0",
+  "description": "Portable domain definitions and adapter contracts for Dominion",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rmolinamir/dominion.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/rmolinamir/dominion#readme",
+  "bugs": "https://github.com/rmolinamir/dominion/issues",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.20.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --root ../.. packages/core/test"
+  },
+  "dependencies": {
+    "@standard-schema/spec": "^1.1.0"
+  }
+}

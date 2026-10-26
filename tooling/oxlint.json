@@ -1,0 +1,37 @@
+{
+  "$schema": "../node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "typescript/consistent-type-imports": "error",
+    "import/no-cycle": "error",
+    "import/newline-after-import": [
+      "error",
+      {
+        "count": 1
+      }
+    ]
+  },
+  "ignorePatterns": ["**/dist/**", "**/node_modules/**", "coverage/**"],
+  "overrides": [
+    {
+      "files": ["packages/core/src/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["node:*", "@atomly/dominion-node", "@atomly/dominion-node/*"],
+                "message": "Core must stay portable; Node execution belongs in dominion-node."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
